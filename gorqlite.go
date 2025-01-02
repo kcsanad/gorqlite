@@ -20,6 +20,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/rs/zerolog"
+
+	custom_tls "github.com/rqlite/gorqlite/custom/tls"
+	"github.com/rqlite/gorqlite/custom/utils"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
 type apiOperation int
@@ -32,8 +38,110 @@ const (
 	api_REQUEST
 )
 
+// By KCs
+
+var logger *zerolog.Logger
+
+type Config struct {
+	AgentSocketPath string
+	ServerSpiffeIDs []string
+	CAfile          string
+	ServerName      string
+	Insecure        bool
+	URL             string
+	Logger          *zerolog.Logger
+}
+
 func init() {
 	traceOut = io.Discard
+}
+
+func NewConfig() *Config {
+	return &Config{
+		AgentSocketPath: "unix:///tmp/spire-agent/public/api.sock",
+		Insecure:        false,
+	}
+}
+
+func (c *Config) SetAgentSocketPath(v string) *Config {
+	c.AgentSocketPath = v
+	return c
+}
+
+func (c *Config) SetServerSpiffeIDs(v []string) *Config {
+	c.ServerSpiffeIDs = v
+	return c
+}
+
+func (c *Config) SetCAfile(v string) *Config {
+	c.CAfile = v
+	return c
+}
+
+func (c *Config) SetServerName(v string) *Config {
+	c.ServerName = v
+	return c
+}
+
+func (c *Config) SetInsecure(v bool) *Config {
+	c.Insecure = v
+	return c
+}
+
+func (c *Config) SetURL(v string) *Config {
+	c.URL = v
+	return c
+}
+
+func (c *Config) SetLogger(v *zerolog.Logger) *Config {
+	logger = v
+	c.Logger = logger
+	return c
+}
+
+func (c *Config) SetLoggerWithLevel(v *zerolog.Logger, level zerolog.Level) *Config {
+	_logger := *v
+	logger = utils.Ptr[zerolog.Logger](_logger.Level(level))
+	c.Logger = logger
+	return c
+}
+
+func (c *Config) OpenConnection() (*Connection, error) {
+	//
+	tlsClientConf, err := prepareTlsClientConf(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// generate our uuid for trace
+	b := make([]byte, 16)
+	_, err = rand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+
+	conn := &Connection{}
+	conn.ID = fmt.Sprintf("%X-%X-%X-%X-%X", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+	trace("%s: Open() called for url: %s", conn.ID, c.URL)
+
+	// set defaults
+	conn.hasBeenClosed = false
+
+	// parse the URL given
+	err = conn.initConnectionBySpire(c.URL, tlsClientConf)
+	if err != nil {
+		return nil, err
+	}
+
+	if !conn.disableClusterDiscovery {
+		// call updateClusterInfo() to re-populate the cluster and discover peers
+		// also tests the user's default
+		if err := conn.updateClusterInfo(); err != nil {
+			return conn, err
+		}
+	}
+
+	return conn, nil
 }
 
 // Open creates and returns a "connection" to rqlite.
@@ -104,19 +212,13 @@ func Open(connURL string) (*Connection, error) {
 //
 // Don't put a \n in your Sprintf pattern becuase trace() adds one
 func trace(pattern string, args ...interface{}) {
-	// don't do the probably expensive Sprintf() if not needed
-	if !wantsTrace {
-		return
+	nlPattern := strings.TrimSpace(pattern)
+
+	if strings.Contains(nlPattern, "ERROR") || strings.Contains(nlPattern, "error") || strings.Contains(nlPattern, "Error") {
+		logger.Error().Msg(fmt.Sprintf(nlPattern, args...))
+	} else {
+		logger.Info().Msg(fmt.Sprintf(nlPattern, args...))
 	}
-
-	// this could all be made into one long statement but we have
-	// compilers to do such things for us. let's sip a mint julep
-	// and spell this out in glorious exposition.
-
-	// make sure there is one and only one newline
-	nlPattern := strings.TrimSpace(pattern) + "\n"
-	msg := fmt.Sprintf(nlPattern, args...)
-	traceOut.Write([]byte(msg))
 }
 
 // TraceOn turns on tracing output to the io.Writer of your choice.
@@ -135,4 +237,35 @@ func TraceOn(w io.Writer) {
 func TraceOff() {
 	wantsTrace = false
 	traceOut = io.Discard
+}
+
+func prepareTlsClientConf(cfg *Config) (*custom_tls.TlsClientConf, error) {
+	tlsClientConf := &custom_tls.TlsClientConf{
+		AgentSocketPath: cfg.AgentSocketPath,
+		ServerName:      cfg.ServerName,
+		Insecure:        cfg.Insecure,
+		CAFile:          cfg.CAfile,
+		Logger:          cfg.Logger,
+	}
+
+	tlsClientConf.ServerSpiffeIDs = make([]spiffeid.ID, 0)
+	for _, id := range cfg.ServerSpiffeIDs {
+		if spID, err := spiffeid.FromString(strings.TrimSpace(id)); err != nil {
+			cfg.Logger.Warn().Str("SpiffeID", id).Msg("Got wrong server SpiffeID, skip... ")
+		} else {
+			tlsClientConf.ServerSpiffeIDs = append(tlsClientConf.ServerSpiffeIDs, spID)
+		}
+	}
+
+	if err := tlsClientConf.InitTlsClientConf(); err != nil {
+		if tlsClientConf.X509Source != nil {
+			tlsClientConf.X509Source.Close()
+		}
+		if tlsClientConf.JWTSource != nil {
+			tlsClientConf.JWTSource.Close()
+		}
+		return nil, err
+	}
+
+	return tlsClientConf, nil
 }

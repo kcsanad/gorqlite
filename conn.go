@@ -20,6 +20,9 @@ import (
 	"time"
 
 	nurl "net/url"
+
+	custom_http "github.com/rqlite/gorqlite/custom/http"
+	custom_tls "github.com/rqlite/gorqlite/custom/tls"
 )
 
 const (
@@ -298,6 +301,20 @@ func (conn *Connection) initConnection(url string) error {
 	trace("%s:    %s -> %s", conn.ID, "wantsTransaction", conn.wantsTransactions)
 
 	conn.cluster.conn = conn
+
+	return nil
+}
+
+func (conn *Connection) initConnectionBySpire(url string, tlsClientConf *custom_tls.TlsClientConf) error {
+	if err := conn.initConnection(url); err != nil {
+		return err
+	}
+
+	customHttpClientParams := custom_http.CustomHttpClientParams{
+		TLSConfigClient: tlsClientConf.MTlsConfigClient,
+	}
+
+	conn.client = *customHttpClientParams.GetHttpClient()
 
 	return nil
 }
