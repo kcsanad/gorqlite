@@ -43,13 +43,13 @@ const (
 var logger *zerolog.Logger
 
 type Config struct {
-	AgentSocketPath string
-	ServerSpiffeIDs []string
-	CAfile          string
-	ServerName      string
-	Insecure        bool
-	URL             string
-	Logger          *zerolog.Logger
+	agentSocketPath string
+	serverSpiffeIDs []string
+	cafile          string
+	serverName      string
+	insecure        bool
+	url             string
+	logger          *zerolog.Logger
 }
 
 func init() {
@@ -58,51 +58,51 @@ func init() {
 
 func NewConfig() *Config {
 	return &Config{
-		AgentSocketPath: "unix:///tmp/spire-agent/public/api.sock",
-		Insecure:        false,
+		agentSocketPath: "unix:///tmp/spire-agent/public/api.sock",
+		insecure:        false,
 	}
 }
 
 func (c *Config) SetAgentSocketPath(v string) *Config {
-	c.AgentSocketPath = v
+	c.agentSocketPath = v
 	return c
 }
 
 func (c *Config) SetServerSpiffeIDs(v []string) *Config {
-	c.ServerSpiffeIDs = v
+	c.serverSpiffeIDs = v
 	return c
 }
 
 func (c *Config) SetCAfile(v string) *Config {
-	c.CAfile = v
+	c.cafile = v
 	return c
 }
 
 func (c *Config) SetServerName(v string) *Config {
-	c.ServerName = v
+	c.serverName = v
 	return c
 }
 
 func (c *Config) SetInsecure(v bool) *Config {
-	c.Insecure = v
+	c.insecure = v
 	return c
 }
 
 func (c *Config) SetURL(v string) *Config {
-	c.URL = v
+	c.url = v
 	return c
 }
 
 func (c *Config) SetLogger(v *zerolog.Logger) *Config {
 	logger = v
-	c.Logger = logger
+	c.logger = logger
 	return c
 }
 
 func (c *Config) SetLoggerWithLevel(v *zerolog.Logger, level zerolog.Level) *Config {
 	_logger := *v
 	logger = utils.Ptr[zerolog.Logger](_logger.Level(level))
-	c.Logger = logger
+	c.logger = logger
 	return c
 }
 
@@ -122,13 +122,13 @@ func (c *Config) OpenConnection() (*Connection, error) {
 
 	conn := &Connection{}
 	conn.ID = fmt.Sprintf("%X-%X-%X-%X-%X", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
-	trace("%s: Open() called for url: %s", conn.ID, c.URL)
+	trace("%s: Open() called for url: %s", conn.ID, c.url)
 
 	// set defaults
 	conn.hasBeenClosed = false
 
 	// parse the URL given
-	err = conn.initConnectionBySpire(c.URL, tlsClientConf)
+	err = conn.initConnectionBySpire(c.url, tlsClientConf)
 	if err != nil {
 		return nil, err
 	}
@@ -241,17 +241,17 @@ func TraceOff() {
 
 func prepareTlsClientConf(cfg *Config) (*custom_tls.TlsClientConf, error) {
 	tlsClientConf := &custom_tls.TlsClientConf{
-		AgentSocketPath: cfg.AgentSocketPath,
-		ServerName:      cfg.ServerName,
-		Insecure:        cfg.Insecure,
-		CAFile:          cfg.CAfile,
-		Logger:          cfg.Logger,
+		AgentSocketPath: cfg.agentSocketPath,
+		ServerName:      cfg.serverName,
+		Insecure:        cfg.insecure,
+		CAFile:          cfg.cafile,
+		Logger:          cfg.logger,
 	}
 
 	tlsClientConf.ServerSpiffeIDs = make([]spiffeid.ID, 0)
-	for _, id := range cfg.ServerSpiffeIDs {
+	for _, id := range cfg.serverSpiffeIDs {
 		if spID, err := spiffeid.FromString(strings.TrimSpace(id)); err != nil {
-			cfg.Logger.Warn().Str("SpiffeID", id).Msg("Got wrong server SpiffeID, skip... ")
+			cfg.logger.Warn().Str("SpiffeID", id).Msg("Got wrong server SpiffeID, skip... ")
 		} else {
 			tlsClientConf.ServerSpiffeIDs = append(tlsClientConf.ServerSpiffeIDs, spID)
 		}
