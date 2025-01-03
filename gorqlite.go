@@ -217,7 +217,7 @@ func trace(pattern string, args ...interface{}) {
 	if strings.Contains(nlPattern, "ERROR") || strings.Contains(nlPattern, "error") || strings.Contains(nlPattern, "Error") {
 		logger.Error().Msg(fmt.Sprintf(nlPattern, args...))
 	} else {
-		logger.Info().Msg(fmt.Sprintf(nlPattern, args...))
+		logger.Debug().Msg(fmt.Sprintf(nlPattern, args...))
 	}
 }
 
