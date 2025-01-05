@@ -64,7 +64,9 @@ func NewConfig() *Config {
 }
 
 func (c *Config) SetAgentSocketPath(v string) *Config {
-	c.agentSocketPath = v
+	if v != "" {
+		c.agentSocketPath = v
+	}
 	return c
 }
 
